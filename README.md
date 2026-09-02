@@ -1,287 +1,147 @@
 # AIXM to GeoJSON Converter
 
-A utility that converts AIXM format into GeoJSON for Node. This tool is intended to work with the AIXM format
-[AIXM format](https://www.aixm.aero/). Currently, the logic only 
-supports reading `airspace` AIXM definitions.
+Converts [AIXM 5.1](https://www.aixm.aero/) airspace data to GeoJSON. Both border encodings of
+the DFS `ED_Airspace` data sets are supported and produce the same geometry:
 
-Internally, the logic uses parts of our [OpenAIR Parser](https://github.com/openAIP/openaip-openair-parser) to also validate the
-given AIXM definitions.
+| data set                              | encoding                                                 |
+| ------------------------------------- | -------------------------------------------------------- |
+| `ED_Airspace_StrokedBorders_*.xml`    | national borders resolved into explicit coordinates      |
+| `ED_Airspace_ReferencedBorders_*.xml` | national borders referenced as `aixm:GeoBorder` features |
 
-Reads AIXM airspace definition. Outputs a GeoJSON FeatureCollection with the following JSON schema:
+Only `airspace` definitions are read. Other AIXM feature types are ignored.
 
-```JSON
+## Installation
+
+```bash
+npm install
+```
+
+Requires Node 20 or later.
+
+## Usage
+
+As a library:
+
+```js
+import { convertFile, validateGeojson } from '@openaip/aixm-to-geojson';
+
+const { geojson, stats } = convertFile('./ED_Airspace_StrokedBorders_2026-08-06_2026-08-06_snapshot.xml');
+console.log(`${stats.converted} airspaces, ${stats.failed} failures`);
+console.log(validateGeojson(geojson).valid);
+```
+
+`convertAirspaces(parsedXml, config)` takes an already parsed document if you want to convert
+several times without re-parsing. Configuration:
+
+| option                | default | meaning                                                          |
+| --------------------- | ------- | ---------------------------------------------------------------- |
+| `geometryDetail`      | `180`   | points used for a full 360° circle                               |
+| `joinToleranceMeters` | `5`     | coordinates closer than this to their predecessor are dropped    |
+| `fixGeometries`       | `true`  | repair self-intersecting rings instead of rejecting the airspace |
+
+On the command line:
+
+```bash
+node cli.js -f <aixm.xml> [-f <another.xml>] [-o <outdir>] [--geometry-detail 180] [--no-fix]
+```
+
+The CLI writes one `.geojson` per input and prints a conversion report: member counts, ring
+part types, GeoBorder usage, geometry quality and any unmapped AIXM values.
+
+## Output
+
+A GeoJSON `FeatureCollection` validated against [`schemas/geojson-schema.json`](schemas/geojson-schema.json):
+
+```json
 {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://adhoc-schemas.openaip.net/schemas/parsed-aixm-airspace.json",
-    "description": "JSON Schema for the GeoJSON FeatureCollection returned by this converter.",
-    "type": "object",
+    "type": "Feature",
+    "id": "48ceb197-a37a-46c6-941f-0733a1cf9141",
     "properties": {
-        "type": {
-            "type": "string",
-            "enum": [
-                "FeatureCollection"
-            ],
-            "description": "A GeoJSON FeatureCollection object that contains all airspace features."
-        },
-        "features": {
-            "type": "array",
-            "items": {
-                "allOf": [
-                    {
-                        "type": "object",
-                        "properties": {
-                            "type": {
-                                "type": "string",
-                                "enum": [
-                                    "Feature"
-                                ]
-                            },
-                            "properties": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {
-                                        "type": "string",
-                                        "description": "The airspace's name."
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "enum": [
-                                            "CTA",
-                                            "TMA",
-                                            "CTR",
-                                            "ATZ",
-                                            "DANGER",
-                                            "PROHIBITED",
-                                            "RESTRICTED",
-                                            "WARNING",
-                                            "AERIAL_SPORTING_RECREATIONAL",
-                                            "RMZ",
-                                            "TMZ",
-                                            "MATZ",
-                                            "GLIDING_SECTOR"
-                                        ],
-                                        "description": "The airspace's type."
-                                    },
-                                    "class": {
-                                        "type": "string",
-                                        "enum": [
-                                            "A",
-                                            "B",
-                                            "C",
-                                            "D",
-                                            "E",
-                                            "F",
-                                            "G",
-                                            "UNCLASSIFIED"
-                                        ],
-                                        "description": "The airspace's class."
-                                    },
-                                    "activity": {
-                                        "type": "string",
-                                        "enum": [
-                                            "NONE",
-                                            "PARACHUTING",
-                                            "AEROBATICS",
-                                            "AEROCLUB_AERIAL_WORK",
-                                            "ULM",
-                                            "HANG_GLIDING"
-                                        ],
-                                        "description": "Property that adds metadata about specific type of arial/sporting areas. Is 'NONE' by default."
-                                    },
-                                    "upperCeiling": {
-                                        "$ref": "#/definitions/verticalLimit"
-                                    },
-                                    "lowerCeiling": {
-                                        "$ref": "#/definitions/verticalLimit"
-                                    },
-                                    "activatedByNotam": { "type": "boolean", "description": "If true, the airspace is activated by a NOTAM." },
-                                    "groundService": {
-                                        "type": "object",
-                                        "properties": {
-                                            "callsign": { "type": "string" , "example": "ABERDEEN APPROACH"},
-                                            "frequency": { "type": "string", "example": "118.000" }
-                                        },
-                                        "description": "The ground service callsign and frequency if available.",
-                                        "required": [
-                                            "callsign",
-                                            "frequency"
-                                        ],
-                                        "additionalProperties": false
-                                    },
-                                    "remarks": {
-                                        "type": "string",
-                                        "description": "A remarks field. If available, this will contain content of the parsed 'rules' list to add more metadata on the airspace."
-                                    }
-                                },
-                                "required": [
-                                    "name",
-                                    "type",
-                                    "class",
-                                    "upperCeiling",
-                                    "lowerCeiling",
-                                    "activatedByNotam",
-                                    "activity"
-                                ],
-                                "additionalProperties": false
-                            },
-                            "geometry": {
-                                "type": "object",
-                                "properties": {
-                                    "type": {
-                                        "type": "string",
-                                        "enum": [
-                                            "Polygon"
-                                        ]
-                                    },
-                                    "coordinates": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "array",
-                                                "items": false,
-                                                "prefixItems": [
-                                                    {
-                                                        "type": "number",
-                                                        "minimum": -180,
-                                                        "maximum": 180
-                                                    },
-                                                    {
-                                                        "type": "number",
-                                                        "minimum": -90,
-                                                        "maximum": 90
-                                                    }
-                                                ],
-                                                "minItems": 2,
-                                                "maxItems": 2
-                                            },
-                                            "minItems": 4
-                                        },
-                                        "minItems": 1,
-                                        "maxItems": 1
-                                    }
-                                },
-                                "required": [
-                                    "type",
-                                    "coordinates"
-                                ],
-                                "additionalProperties": false,
-                                "example": {
-                                    "type": "Polygon",
-                                    "coordinates": [
-                                        [
-                                            [
-                                                9.1234,
-                                                45.42432
-                                            ],
-                                            [
-                                                10.1234,
-                                                45.42432
-                                            ],
-                                            [
-                                                10.1234,
-                                                47.42432
-                                            ],
-                                            [
-                                                9.1234,
-                                                45.42432
-                                            ]
-                                        ]
-                                    ]
-                                }
-                            }
-                        },
-                        "required": [
-                            "type",
-                            "properties",
-                            "geometry"
-                        ],
-                        "additionalProperties": false
-                    }
-                ]
-            }
-        }
+        "name": "HARTENHOLM",
+        "type": "OTHER",
+        "class": "UNCLASSIFIED",
+        "activity": "NONE",
+        "upperCeiling": { "value": 1500, "unit": "FT", "referenceDatum": "GND" },
+        "lowerCeiling": { "value": 0, "unit": "FT", "referenceDatum": "GND" },
+        "activatedByNotam": false
     },
-    "required": [
-        "type",
-        "features"
-    ],
-    "additionalProperties": false,
-    "definitions": {
-        "verticalLimit": {
-            "type": "object",
-            "properties": {
-                "value": {
-                    "type": "integer"
-                },
-                "unit": {
-                    "type": "string",
-                    "enum": [
-                        "FT",
-                        "FL"
-                    ]
-                },
-                "referenceDatum": {
-                    "type": "string",
-                    "enum": [
-                        "GND",
-                        "STD",
-                        "MSL"
-                    ]
-                }
-            },
-            "required": [
-                "value",
-                "unit",
-                "referenceDatum"
-            ],
-            "description": "Defines an airspace vertical limit. The vertical limit is a combination of an integer value, a measurement unit and a reference datum.",
-            "additionalProperties": false
-        }
-    }
+    "geometry": { "type": "Polygon", "coordinates": [[[10.04, 53.92], "..."]] }
 }
 ```
 
-Install
-=
-```shell
-npm install -g @openaip/aixm-to-geojson
-```
+The feature `id` is the airspace's `gml:identifier` — a UUID that is stable across AIRAC
+cycles and therefore the key an incremental import can diff on.
 
-Node
-=
+## Notes on the AIXM/GML encoding
 
-```javascript
-const { AixmConverter } = require('@openaip/aixm-to-geojson');
+The rules below are not optional details; getting any of them wrong produces plausible-looking
+but wrong geometry rather than an error. Sources are the
+[AIXM Coding Guidelines](https://ext.eurocontrol.int/aixm_confluence/display/ACG/Arc+by+Centre+Point)
+and ISO 19136.
 
-const inputFilePath = './path/to/input-aixm-file.txt';
+**Coordinate order.** `srsName="urn:ogc:def:crs:EPSG::4326"` is latitude-first — the opposite
+of GeoJSON. The CRS is resolved explicitly rather than assumed (`isLatLonOrder`).
 
-const converter = new AixmConverter({ fixGeometries: true, strictSchemaValidation: true });
-// or alternatively call "convertFromBuffer" to read from Buffer
-await converter.convertFromFile(inputFilepath, { type: 'airspace' });
-const geojson = converter.toGeojson();
-```
+**Arc direction is signed.** With a latitude-first CRS an arc runs clockwise when
+`startAngle < endAngle` and counter-clockwise when `startAngle > endAngle`. Roughly 40 % of the
+arcs in the DFS data are counter-clockwise. Normalising the sweep to a positive value draws
+those the wrong way round while still ending at the correct point, so endpoint checks do not
+catch the error.
 
-CLI
-=
+**Arcs are over-specified.** The guidelines note that the distance from the centre to the
+start/end points "is not quite the same due to round-off error and is also usually different
+from the radius". Taking radius and angles at face value misses the adjacent ring vertex by
+some 145 m on average. Each arc is therefore re-based on its neighbouring vertices, with the
+radius interpolated between the two measured values, which closes the joins exactly.
+
+**Geodesics, not a sphere.** Distances and bearings run through GeographicLib on the WGS84
+ellipsoid. A spherical model (as used by turf's `destination`/`circle`) deviates by up to
+0.47 % of the radius against this data — about 300 m on a 34 NM arc.
+
+**GeoBorders are longer than the portion used.** A `gml:curveMember` carrying
+`xlink:href="urn:uuid:…"` references an entire national border. Which portion applies follows
+from ISO 19136's requirement that a ring's curves be "contiguous and connected in a cycle",
+i.e. from the adjacent curve members. Three details matter: the anchor must be projected onto
+the border _line_ rather than snapped to the nearest _vertex_ (at the DE/PL maritime border the
+difference is 28 km); consecutive references to the _same_ border form one continuous stretch;
+consecutive references to _different_ borders form a chain across a tripoint, where the borders
+in between are traversed completely.
+
+**Aggregating airspaces.** An airspace may carry no geometry of its own but a sequence of
+`aixm:geometryComponent`s referencing other airspaces, ordered by `aixm:operationSequence`
+(`BASE`, then `UNION` / `SUBTR` / `INTERS`). These are resolved recursively and applied in
+order. Where their vertical limits are `xsi:nil`, the envelope of the contributors is used.
+
+**Cross-border airspaces.** A few airspaces reference their foreign half through an abstract
+`urn:aixm:Airspace(…)` key that is not resolvable from a single national data set. They are
+emitted from the resolvable part and reported as partial rather than dropped.
+
+## Verification
+
+The two DFS encodings describe the same airspaces, which makes them a check on each other.
+Converting both AIRAC 2026-08-06 snapshots and matching the 1673 features pairwise by UUID:
+
+| intersection over union | airspaces |
+| ----------------------- | --------- |
+| ≥ 0.9999                | 1670      |
+| ≥ 0.999                 | 3         |
+| < 0.999                 | 0         |
+
+Both files convert completely (1673 / 1673, no failures) and the output validates against the
+schema. The bundled fixture (`tests/fixtures/aixm-airspace.xml`, AIRAC 2023-07-13) converts
+completely as well and is covered by `tests/fixture.test.js`.
 
 ```bash
-node cli.js -h
-
-Usage: cli [options]
-
-Options:
-  -f, --input-filepath <inputFilepath>    The input file path to the AIXM file.
-  -o, --output-filepath <outputFilepath>  The output filename of the generated GeoJSON file.
-  -T, --type                              The type to read from AIXM file. Currently only "airspace" is supported. (default: "airspace")
-  -V, --validate                          If specified, converter will validate geometries.
-  -F, --fix-geometry                      If specified, converter will try to fix geometries.
-  -S, --strict-schema-validation          If specified, converter will strictly validate the created GeoJSON against the underlying schema. If the GeoJSON does not match the JSON schema, the converter will throw an error.
-  -h, --help                              Outputs usage information.
+npm test
 ```
 
-Simple command line usage:
+## Known gaps
 
-```bash
-node cli.js --type=airspace -f ./path/to/input-aixm-file.txt -o ./path/to/output-geojson-file.geojson
-```
+-   **Airspace types.** `aixm:type` / `aixm:localType` are mapped in `src/mappings.js` against
+    the enum of this package's schema, which is narrower than openAIP's own type list. Military
+    low flying areas (`ETLFA*`) and Free Route Airspace gates (`GT`) currently fall back to
+    `OTHER`, and the `LASER` activity has no counterpart.
+-   **Timesheets.** The `aixm:Timesheet` blocks carrying activation schedules are not read;
+    `activatedByNotam` is always `false`.
+-   **Interior rings.** Surfaces with `gml:interior` (holes) are rejected. Neither DFS data set
+    contains any.

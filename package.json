@@ -1,7 +1,7 @@
 {
     "name": "@openaip/aixm-to-geojson",
-    "version": "0.1.0",
-    "description": "Experimental and incomplete converter that converts AIXM to a simplified GeoJSON. Only the bare minimum is implemented.",
+    "version": "0.2.0",
+    "description": "Converts AIXM 5.1 airspace data to GeoJSON. Reads both border encodings of the DFS ED_Airspace data sets: borders stroked into explicit coordinates and borders referenced as GeoBorder features.",
     "keywords": [
         "openaip",
         "aixm",
@@ -30,38 +30,36 @@
     },
     "homepage": "https://github.com/openAIP/openaip-aixm-to-geojson#readme",
     "scripts": {
-        "test": "TZ='UTC' NODE_ENV=test jest --forceExit -c jest.config.js tests/**",
-        "test-watch": "TZ='UTC' NODE_ENV=test jest --forceExit -c jest.config.js tests/** --watch",
-        "lint": "eslint -c .eslintrc.js .",
+        "test": "node --test tests/",
+        "test-watch": "node --test --watch tests/",
+        "convert": "node cli.js",
+        "lint": "eslint -c .eslintrc.cjs .",
         "run-security-audit": "npm audit --omit=dev",
         "bump-version": "bump -c 'version bump to ' -tp",
-        "update-packages": "ncu --target minor --upgrade --reject jsts && npm install"
+        "update-packages": "ncu --target minor --upgrade && npm install"
     },
     "dependencies": {
-        "@turf/turf": "^6.5.0",
-        "ajv": "^8.12.0",
-        "ajv-errors": "^3.0.0",
-        "ajv-formats": "^2.1.1",
-        "ajv-keywords": "^5.1.0",
-        "check-types": "^11.2.2",
-        "clean-deep": "^3.4.0",
-        "jsts": "<=2.6.1",
-        "xml-js": "^1.6.11"
+        "@turf/turf": "^7.4.0",
+        "ajv": "^8.20.0",
+        "fast-xml-parser": "^5.11.1",
+        "geographiclib-geodesic": "^2.2.0"
     },
     "devDependencies": {
         "@babel/eslint-parser": "^7.19.1",
-        "@types/check-types": "^7.3.4",
-        "@types/jest": "^27.5.2",
-        "commander": "^2.20.3",
         "eslint": "^8.35.0",
         "eslint-config-prettier": "^8.7.0",
         "eslint-plugin-import": "^2.27.5",
         "eslint-plugin-only-warn": "^1.1.0",
         "eslint-plugin-prettier": "^4.2.1",
-        "jest": "^27.5.1",
-        "nodemon": "^2.0.21",
         "npm-check-updates": "^16.7.10",
         "prettier": "^2.8.4",
         "version-bump-prompt": "^6.1.0"
+    },
+    "type": "module",
+    "bin": {
+        "aixm-to-geojson": "./cli.js"
+    },
+    "engines": {
+        "node": ">=20"
     }
 }
