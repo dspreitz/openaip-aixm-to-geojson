@@ -1,14 +1,97 @@
 # AIXM to GeoJSON Converter
 
-Converts [AIXM 5.1](https://www.aixm.aero/) airspace data to GeoJSON. Both border encodings of
-the DFS `ED_Airspace` data sets are supported and produce the same geometry:
+Converts [AIXM](https://www.aixm.aero/) airspace data to GeoJSON. Two generations of the
+model are read; the generation is detected from the root element, not from a version
+attribute:
 
-| data set                              | encoding                                                 |
-| ------------------------------------- | -------------------------------------------------------- |
-| `ED_Airspace_StrokedBorders_*.xml`    | national borders resolved into explicit coordinates      |
-| `ED_Airspace_ReferencedBorders_*.xml` | national borders referenced as `aixm:GeoBorder` features |
+| data set                                 | AIXM  | encoding                                                 |
+| ---------------------------------------- | ----- | -------------------------------------------------------- |
+| `ED_Airspace_StrokedBorders_*.xml` (DFS) | 5.1   | national borders resolved into explicit coordinates      |
+| `ED_Airspace_ReferencedBorders_*.xml`    | 5.1   | national borders referenced as `aixm:GeoBorder` features |
+| `AIXM4.5_all_FR_OM_*.xml` (SIA, France)  | 4.5   | `AIXM-Snapshot` with `Ase` / `Abd` / `Avx` entities      |
 
-Only `airspace` definitions are read. Other AIXM feature types are ignored.
+Only airspace definitions are read. Other feature types - aerodromes, navaids, obstacles,
+routes - are ignored.
+
+## AIXM 4.5
+
+AIXM 4.5 is a different model, not an older spelling of 5.1. There is no GML: an airspace
+`Ase` is linked to a border `Abd`, which carries a flat, ordered list of vertices `Avx`.
+The `codeType` of a vertex describes **the segment from that vertex to the next one**:
+
+| `codeType` | meaning                                             |
+| ---------- | --------------------------------------------------- |
+| `GRC`      | great circle to the next vertex                     |
+| `RHL`      | rhumb line to the next vertex                       |
+| `CWA`      | clockwise arc around `geoLatArc`/`geoLongArc`       |
+| `CCA`      | counter-clockwise arc                               |
+| `FNT`      | follow the referenced national border (`Gbr`)       |
+
+Coordinates are `DDMMSS.ss` with a hemisphere letter and datum WGE throughout, so there is
+no CRS attribute and no axis-order question. Two further entities matter: `Adg` states that
+an airspace has the same extent as another one, and `Gbr`/`Gbv` hold the national borders
+that `FNT` vertices refer to.
+
+### What the SIA data set yields
+
+Converting `AIXM4.5_all_FR_OM_2026-09-03.xml` (41.8 MB, AIRAC 09/26):
+
+```
+airspaces in file                       5061
+converted                               2217
+skipped: point without extent           2135
+skipped: no geometry in file             698
+extent taken from another airspace        85
+```
+
+The large "point without extent" group is not a defect of the converter. The SIA publishes
+thousands of activity zones - model flying (`txtLocalType` `AER`), glider winch launching
+(`TRPLA`), parachuting (`PJE`) - as a **single position with no radius anywhere in the
+data**. Turning them into circles would mean inventing an extent the AIP does not state, so
+they are counted and skipped. The "no geometry" group is mostly dangling `Adg` references:
+501 of the 597 point at an airspace that is not in the file.
+
+### Frequencies
+
+AIXM 4.5 links a frequency to an airspace through the service, not directly:
+
+```
+Ase  <--  Sae  -->  Ser  <--  Fqy
+```
+
+`Sae` is the service/airspace association, `Fqy` carries the frequency for the same
+service. Joining on `SerUid/@mid` and joining on the composite key
+(`UniUid/txtName` + `codeType` + `noSeq`) resolve the same 823 of 823 associations in the
+09/26 cycle, so the shorter `@mid` is used.
+
+Of the 2217 converted airspaces, 677 carry at least one frequency - CTR 104 of 133, TMA
+355 of 510, CTA 58 of 99. The activity zones legitimately have none.
+
+**No single "primary" frequency is emitted.** 558 of those 677 carry several, and picking
+one for a format that only holds one value - OpenAIR `AF`, for instance - is an editorial
+decision (TWR for a CTR, APP for a TMA) that belongs to the consumer. The service type
+travels with each entry so that choice can be made downstream:
+
+```json
+"frequencies": [
+    { "type": "TWR", "value": 118.105, "unit": "MHZ", "name": "BLAGNAC - TOWER", "hours": "H24" },
+    { "type": "APP", "value": 121.105, "unit": "MHZ", "name": "BLAGNAC - APPROACH", "hours": "H24" }
+]
+```
+
+The call sign is published once per language - French always, English for 1494 of the 1743
+frequencies. English is preferred, French kept where there is no English.
+
+### Differences in the output
+
+- **`id`**: AIXM 4.5 has no UUID, and `AseUid/@mid` is a database row id that changes
+  between cycles. The id is therefore a deterministic UUIDv5 over `codeType|codeId`, which
+  the AIP keeps stable - so incremental updates work the same way as for 5.1.
+- **`designator`** and **`remarks`** are added. For the SIA `D-OTHER` zones `txtRmk` is the
+  only place stating what the zone actually is.
+- A ring that returns to an earlier vertex - two lobes touching at a point, as in `TF25` or
+  the Strasbourg sectors - is split and emitted as a `MultiPolygon` instead of being
+  rejected.
 
 ## Installation
 
@@ -25,10 +108,14 @@ As a library:
 ```js
 import { convertFile, validateGeojson } from '@openaip/aixm-to-geojson';
 
-const { geojson, stats } = convertFile('./ED_Airspace_StrokedBorders_2026-08-06_2026-08-06_snapshot.xml');
-console.log(`${stats.converted} airspaces, ${stats.failed} failures`);
+const { geojson, stats, aixmVersion } = convertFile('./AIXM4.5_all_FR_OM_2026-09-03.xml');
+console.log(`AIXM ${aixmVersion}: ${stats.converted} airspaces, ${stats.failed} failures`);
 console.log(validateGeojson(geojson).valid);
 ```
+
+`convert(parsedXml, config)` dispatches on the detected generation, `detectAixmVersion`
+returns `'5.1'` or `'4.5'`, and `convertAirspaces` / `convertAixm45` can be called directly
+if the generation is already known.
 
 `convertAirspaces(parsedXml, config)` takes an already parsed document if you want to convert
 several times without re-parsing. Configuration:

@@ -1,7 +1,7 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://adhoc-schemas.openaip.net/schemas/aixm-airspace.json",
-    "description": "GeoJSON FeatureCollection produced by the AIXM airspace converter. Derived from the schema of openAIP/openaip-aixm-to-geojson, extended by: a feature 'id' carrying the AIXM UUID, MultiPolygon geometries (aggregating airspaces can be disjoint), and the airspace type 'OTHER'.",
+    "description": "GeoJSON FeatureCollection produced by the AIXM airspace converter. Derived from the schema of openAIP/openaip-aixm-to-geojson, extended by: a feature 'id' carrying the AIXM UUID, MultiPolygon geometries (aggregating airspaces can be disjoint), and the airspace type 'OTHER'. For AIXM 4.5 sources the 'id' is a deterministic UUIDv5 over codeType+codeId, and the optional 'designator' and 'remarks' carry information that has no counterpart in AIXM 5.1.",
     "type": "object",
     "required": ["type", "features"],
     "additionalProperties": false,
@@ -18,7 +18,7 @@
                 "type": { "const": "Feature" },
                 "id": {
                     "type": "string",
-                    "description": "The AIXM gml:identifier (UUID) of the airspace - stable across AIRAC cycles.",
+                    "description": "Stable airspace identity across AIRAC cycles: the AIXM 5.1 gml:identifier, or for AIXM 4.5 a deterministic UUIDv5 derived from codeType+codeId.",
                     "pattern": "^[0-9a-fA-F-]{36}$"
                 },
                 "properties": {
@@ -27,6 +27,30 @@
                     "additionalProperties": false,
                     "properties": {
                         "name": { "type": "string", "minLength": 1 },
+                        "designator": {
+                            "type": "string",
+                            "description": "AIXM 4.5 only: the AIP designator (Ase/AseUid/codeId), e.g. 'LFSB' or 'LF9013'."
+                        },
+                        "remarks": {
+                            "type": ["string", "null"],
+                            "description": "AIXM 4.5 only: Ase/txtRmk. For the SIA 'D-OTHER' zones this is the only place stating what the zone actually is."
+                        },
+                        "frequencies": {
+                            "type": "array",
+                            "description": "AIXM 4.5 only: the frequencies of the services associated with this airspace (Ase <- Sae -> Ser <- Fqy). No single frequency is singled out - most airspaces carry several, and choosing one for a single-valued field such as OpenAIR 'AF' is an editorial decision.",
+                            "items": {
+                                "type": "object",
+                                "required": ["value", "unit"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "type": { "type": ["string", "null"], "description": "Service type: TWR, APP, ACS, FIS, AFIS, ..." },
+                                    "value": { "type": "number" },
+                                    "unit": { "enum": ["MHZ", "KHZ"] },
+                                    "name": { "type": ["string", "null"], "description": "Call sign, English where published, French otherwise." },
+                                    "hours": { "type": ["string", "null"], "description": "AIXM codeWorkHr, e.g. H24, HJ, HO, HX." }
+                                }
+                            }
+                        },
                         "type": {
                             "type": "string",
                             "enum": ["CTA", "TMA", "CTR", "ATZ", "DANGER", "PROHIBITED", "RESTRICTED", "WARNING", "AERIAL_SPORTING_RECREATIONAL", "RMZ", "TMZ", "MATZ", "GLIDING_SECTOR", "OTHER"]

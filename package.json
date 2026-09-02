@@ -1,7 +1,7 @@
 {
     "name": "@openaip/aixm-to-geojson",
     "version": "0.2.0",
-    "description": "Converts AIXM 5.1 airspace data to GeoJSON. Reads both border encodings of the DFS ED_Airspace data sets: borders stroked into explicit coordinates and borders referenced as GeoBorder features.",
+    "description": "Converts AIXM airspace data to GeoJSON. Reads AIXM 5.1 (both border encodings of the DFS ED_Airspace data sets) and AIXM 4.5 snapshots such as the SIA AIXM4.5_all_FR_OM data set for France.",
     "keywords": [
         "openaip",
         "aixm",

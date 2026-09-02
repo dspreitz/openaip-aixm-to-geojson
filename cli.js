@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { parseArgs } from 'node:util';
 import { bbox } from '@turf/turf';
 import { parseXml } from './src/xml.js';
-import { convertAirspaces } from './src/converter.js';
+import { convert } from './index.js';
 import { validateGeojson } from './src/validate.js';
 
 const { values } = parseArgs({
@@ -34,7 +34,7 @@ for (const input of values.input) {
 
     const xml = fs.readFileSync(input);
     const parsed = parseXml(xml);
-    const { geojson, stats } = convertAirspaces(parsed, {
+    const { geojson, stats, aixmVersion } = convert(parsed, {
         geometryDetail: Number.parseInt(values['geometry-detail'], 10),
         fixGeometries: values['no-fix'] === false,
     });
@@ -44,6 +44,10 @@ for (const input of values.input) {
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
 
     console.log(`\ninput  ${(xml.length / 1024 / 1024).toFixed(1)} MB   ->   ${output}   (${seconds}s)`);
+    console.log(
+        `AIXM ${aixmVersion}${stats.effective ? `   effective ${stats.effective}` : ''}` +
+            `${stats.origin ? `   origin ${stats.origin}` : ''}`
+    );
 
     console.log(`\nmembers`);
     for (const [member, count] of sorted(stats.members)) line(member, count);
@@ -51,10 +55,24 @@ for (const input of values.input) {
     console.log(`\nairspaces`);
     line('converted', `${stats.converted} / ${stats.converted + stats.failed}`);
     line('failed', stats.failed);
-    line('aggregated (BASE + UNION)', stats.aggregated);
-    line('vertical limits from contributors', stats.limitsFromContributors);
+    if (stats.aggregated != null) {
+        line('aggregated (BASE + UNION)', stats.aggregated);
+        line('vertical limits from contributors', stats.limitsFromContributors);
+        line('partial (contributor not in file)', stats.partialAggregations.length);
+    }
     line('emitted as MultiPolygon', stats.multiPolygons);
-    line('partial (contributor not in file)', stats.partialAggregations.length);
+    /*
+     AIXM 4.5 only. The SIA data set publishes thousands of activity zones - model
+     flying, winch launching, parachuting - as a single position with no radius, so
+     they carry no area that could be converted. They are counted rather than hidden.
+    */
+    if (stats.pointOnly != null) {
+        line('skipped: point without extent', stats.pointOnly);
+        line('skipped: no geometry in file', stats.withoutGeometry);
+        line('extent taken from another airspace', stats.sameExtent);
+        line('with at least one frequency', stats.withFrequency);
+        line('  of those, several frequencies', stats.withSeveralFrequencies);
+    }
 
     console.log(`\nring parts`);
     for (const [kind, count] of sorted(stats.parts)) line(kind, count);
@@ -72,10 +90,13 @@ for (const input of values.input) {
     console.log(`\ngeometry quality`);
     line('self-intersecting rings', stats.selfIntersecting);
     line('repaired', stats.repaired);
-    line('max part join gap (m)', stats.joinGaps.max.toFixed(1));
-    line('  worst airspace', stats.joinGaps.worst ?? '-');
-    line('rings with join gap > 10 m', stats.joinGaps.over10m);
-    line('rings with join gap > 100 m', stats.joinGaps.over100m);
+    if (stats.joinGaps != null) {
+        line('max part join gap (m)', stats.joinGaps.max.toFixed(1));
+        line('  worst airspace', stats.joinGaps.worst ?? '-');
+        line('rings with join gap > 10 m', stats.joinGaps.over10m);
+        line('rings with join gap > 100 m', stats.joinGaps.over100m);
+    }
+    if (stats.pinched != null) line('rings split at a self-touch', stats.pinched);
     if (geojson.features.length > 0) {
         line(
             'bbox [W S E N]',

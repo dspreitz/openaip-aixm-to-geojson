@@ -268,7 +268,7 @@ function ringParts(ring, config) {
  * @param {number[]} target
  * @return {{index: number, fraction: number, point: number[], distanceMeters: number}}
  */
-function nearestOnPolyline(coordinates, target) {
+export function nearestOnPolyline(coordinates, target) {
     const scale = Math.cos((target[1] * Math.PI) / 180);
     let best = { index: 0, fraction: 0, point: coordinates[0], distanceMeters: Infinity };
 
@@ -308,7 +308,7 @@ function nearestOnPolyline(coordinates, target) {
  * @param {number[]} exitPoint
  * @return {number[][]}
  */
-function clipBorder(coordinates, entryPoint, exitPoint) {
+export function clipBorder(coordinates, entryPoint, exitPoint) {
     const entry = nearestOnPolyline(coordinates, entryPoint);
     const exit = nearestOnPolyline(coordinates, exitPoint);
     const entryPosition = entry.index + entry.fraction;
